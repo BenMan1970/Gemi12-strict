@@ -14,7 +14,7 @@ except (KeyError, FileNotFoundError):
 
 TWELVE_DATA_API_URL = "https://api.twelvedata.com/time_series"
 
-# --- FONCTIONS HELPER (INCHANGÉES) ---
+# --- FONCTIONS HELPER ---
 def wma(series: pd.Series, length: int) -> pd.Series:
     weights = pd.Series(range(1, length + 1))
     return series.rolling(length).apply(lambda prices: (prices * weights).sum() / weights.sum(), raw=True)
@@ -68,7 +68,6 @@ def rsi(src, p):
     d = src.diff(); g = d.where(d > 0, 0.0); l = -d.where(d < 0, 0.0); rs = rma(g, p) / rma(l, p).replace(0, 1e-9)
     return 100 - 100 / (1 + rs)
 
-### CORRECTION CRITIQUE ### : Réécriture de la fonction pour être plus claire et corriger le bug
 def calculate_signals(df, aligned_direction=None):
     if df is None or len(df) < 100: return None
     
@@ -105,15 +104,11 @@ def calculate_signals(df, aligned_direction=None):
     adxHasMomentum=adx_series.iloc[-1]>=adxThreshold
     signals['ADX']=f"{int(adx_series.iloc[-1])} {'💪' if adxHasMomentum else '💤'}"
 
-    # ### CORRECTION DE LA LIGNE QUI PROVOQUAIT L'ERREUR ###
-    # On calcule Ichimoku correctement, en comparant le prix au nuage
     tenkan=(df['High'].rolling(ichimokuTenkan).max()+df['Low'].rolling(ichimokuTenkan).min())/2
     kijun=(df['High'].rolling(26).max()+df['Low'].rolling(26).min())/2
     senkouA=(tenkan+kijun)/2
     senkouB=(df['High'].rolling(52).max()+df['Low'].rolling(52).min())/2
     price=df['Close'].iloc[-1]
-    
-    # La logique correcte : le prix est-il au-dessus ou en dessous du nuage ?
     ichimokuSignal = 1 if price > senkouA.iloc[-1] and price > senkouB.iloc[-1] else -1 if price < senkouA.iloc[-1] and price < senkouB.iloc[-1] else 0
     signals['Ichimoku']="▲" if ichimokuSignal==1 else "▼" if ichimokuSignal==-1 else "─"
 
@@ -156,7 +151,7 @@ if st.button("Lancer le Scan 🚀", use_container_width=True):
             progress_bar.progress(current_progress, text=f"({i+1}/{total_pairs}) Vérification D1/H4 pour {symbol}...")
             aligned_direction = check_directional_filters(symbol)
             if not aligned_direction:
-                st.toast(f"{symbol} : Tendance non alignée.", icon="❌")
+                ### MODIFICATION ### : La ligne st.toast pour les tendances non alignées a été supprimée.
                 continue 
             st.toast(f"{symbol} : Tendance {aligned_direction} alignée ! ✅", icon="📈")
         progress_bar.progress(current_progress, text=f"({i+1}/{total_pairs}) Calcul de la confluence H1 pour {symbol}...")
@@ -177,7 +172,7 @@ if st.button("Lancer le Scan 🚀", use_container_width=True):
         df_display = df_res.drop(columns=['confluence_score'])[column_order]
         def style_direction(direction):
             if 'HAUSSIER' in direction: return 'color: #2ECC71; font-weight: bold;'
-            elif 'BAISSIER' in direction: return 'color: #E74C3C; font-weight: bold;'
+            if 'BAISSIER' in direction: return 'color: #E74C3C; font-weight: bold;'
             return ''
         st.dataframe(df_display.style.applymap(style_direction, subset=['Direction']), use_container_width=True)
         csv = df_res.to_csv(index=False).encode('utf-8')
@@ -188,4 +183,3 @@ if st.button("Lancer le Scan 🚀", use_container_width=True):
             st.info("Le filtre de tendance D1/H4 est très sélectif. Essayez de relancer le scan en décochant la case 'Activer le filtre' pour voir plus de signaux potentiels (non filtrés).")
 
 st.caption(f"Confluence calculée sur 1h. | Dernière MàJ : {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC")
- 

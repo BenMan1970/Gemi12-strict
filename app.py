@@ -5,7 +5,7 @@ import time
 from datetime import datetime, timezone
 import requests
 
-# --- CONFIGURATION (LISANT LES SECRETS ET PARAMÈTRES) ---
+# --- CONFIGURATION ---
 try:
     API_KEY = st.secrets["TWELVEDATA_API_KEY"]
 except (KeyError, FileNotFoundError):
@@ -68,29 +68,65 @@ def rsi(src, p):
     d = src.diff(); g = d.where(d > 0, 0.0); l = -d.where(d < 0, 0.0); rs = rma(g, p) / rma(l, p).replace(0, 1e-9)
     return 100 - 100 / (1 + rs)
 
-### MODIFICATION ###: La fonction s'adapte maintenant si un filtre est appliqué ou non
+### CORRECTION CRITIQUE ### : Réécriture de la fonction pour être plus claire et corriger le bug
 def calculate_signals(df, aligned_direction=None):
     if df is None or len(df) < 100: return None
-    # ... (le reste du calcul des indicateurs est identique et compacté pour la lisibilité)
-    hmaLength=20; adxThreshold=20; rsiLength=10; adxLength=14; diLength=14; ichimokuTenkan=9; sha_len1=10; sha_len2=10; signals={}; bullConfluences=0; bearConfluences=0
-    hma_series=hma(df['Close'],hmaLength); hmaSlope=1 if hma_series.iloc[-1]>hma_series.iloc[-2] else -1; signals['HMA']="▲" if hmaSlope==1 else "▼"
-    ha_close=df[['Open','High','Low','Close']].mean(axis=1); ha_open=pd.Series(np.nan,index=df.index); ha_open.iloc[0]=(df['Open'].iloc[0]+df['Close'].iloc[0])/2; 
+    
+    # Paramètres
+    hmaLength=20; adxThreshold=20; rsiLength=10; adxLength=14; diLength=14; ichimokuTenkan=9; sha_len1=10; sha_len2=10
+    signals={}; bullConfluences=0; bearConfluences=0
+
+    # Calcul des indicateurs
+    hma_series=hma(df['Close'], hmaLength)
+    hmaSlope=1 if hma_series.iloc[-1]>hma_series.iloc[-2] else -1
+    signals['HMA']="▲" if hmaSlope==1 else "▼"
+
+    ha_close=df[['Open','High','Low','Close']].mean(axis=1)
+    ha_open=pd.Series(np.nan,index=df.index)
+    ha_open.iloc[0]=(df['Open'].iloc[0]+df['Close'].iloc[0])/2
     for i in range(1,len(df)): ha_open.iloc[i]=(ha_open.iloc[i-1]+ha_close.iloc[i-1])/2
-    haSignal=1 if ha_close.iloc[-1]>ha_open.iloc[-1] else -1; signals['Heikin Ashi']="▲" if haSignal==1 else "▼"
-    o=ema(df['Open'],sha_len1); c=ema(df['Close'],sha_len1); h=ema(df['High'],sha_len1); l=ema(df['Low'],sha_len1); haclose_s=(o+h+l+c)/4; haopen_s=pd.Series(np.nan,index=df.index); haopen_s.iloc[0]=(o.iloc[0]+c.iloc[0])/2
+    haSignal=1 if ha_close.iloc[-1]>ha_open.iloc[-1] else -1
+    signals['Heikin Ashi']="▲" if haSignal==1 else "▼"
+
+    o=ema(df['Open'],sha_len1); c=ema(df['Close'],sha_len1); h=ema(df['High'],sha_len1); l=ema(df['Low'],sha_len1)
+    haclose_s=(o+h+l+c)/4
+    haopen_s=pd.Series(np.nan,index=df.index); haopen_s.iloc[0]=(o.iloc[0]+c.iloc[0])/2
     for i in range(1,len(df)): haopen_s.iloc[i]=(haopen_s.iloc[i-1]+haclose_s.iloc[i-1])/2
-    o2=ema(haopen_s,sha_len2); c2=ema(haclose_s,sha_len2); smoothedHaSignal=1 if o2.iloc[-1]<=c2.iloc[-1] else -1; signals['Smoothed HA']="▲" if smoothedHaSignal==1 else "▼"
-    ohlc4=df[['Open','High','Low','Close']].mean(axis=1); rsi_series=rsi(ohlc4,rsiLength); rsiSignal=1 if rsi_series.iloc[-1]>50 else -1; signals['RSI']=f"{int(rsi_series.iloc[-1])} {'▲' if rsiSignal==1 else '▼'}"
-    adx_series=adx(df['High'],df['Low'],df['Close'],diLength,adxLength); adxHasMomentum=adx_series.iloc[-1]>=adxThreshold; signals['ADX']=f"{int(adx_series.iloc[-1])} {'💪' if adxHasMomentum else '💤'}"
-    tenkan=(df['High'].rolling(ichimokuTenkan).max()+df['Low'].rolling(ichimokuTenkan).min())/2; kijun=(df['High'].rolling(26).max()+df['Low'].rolling(26).min())/2; senkouA=(tenkan+kijun)/2; senkouB=(df['High'].rolling(52).max()+df['Low'].rolling(52).min())/2; price=df['Close'].iloc[-1]; ichimokuSignal=1 if price>df.iloc[-1][['ema20','ema50']].max() else -1 if price<df.iloc[-1][['ema20','ema50']].min() else 0; signals['Ichimoku']="▲" if ichimokuSignal==1 else "▼" if ichimokuSignal==-1 else "─"
+    o2=ema(haopen_s,sha_len2); c2=ema(haclose_s,sha_len2)
+    smoothedHaSignal=1 if o2.iloc[-1]<=c2.iloc[-1] else -1
+    signals['Smoothed HA']="▲" if smoothedHaSignal==1 else "▼"
+
+    ohlc4=df[['Open','High','Low','Close']].mean(axis=1)
+    rsi_series=rsi(ohlc4,rsiLength)
+    rsiSignal=1 if rsi_series.iloc[-1]>50 else -1
+    signals['RSI']=f"{int(rsi_series.iloc[-1])} {'▲' if rsiSignal==1 else '▼'}"
+
+    adx_series=adx(df['High'],df['Low'],df['Close'],diLength,adxLength)
+    adxHasMomentum=adx_series.iloc[-1]>=adxThreshold
+    signals['ADX']=f"{int(adx_series.iloc[-1])} {'💪' if adxHasMomentum else '💤'}"
+
+    # ### CORRECTION DE LA LIGNE QUI PROVOQUAIT L'ERREUR ###
+    # On calcule Ichimoku correctement, en comparant le prix au nuage
+    tenkan=(df['High'].rolling(ichimokuTenkan).max()+df['Low'].rolling(ichimokuTenkan).min())/2
+    kijun=(df['High'].rolling(26).max()+df['Low'].rolling(26).min())/2
+    senkouA=(tenkan+kijun)/2
+    senkouB=(df['High'].rolling(52).max()+df['Low'].rolling(52).min())/2
+    price=df['Close'].iloc[-1]
+    
+    # La logique correcte : le prix est-il au-dessus ou en dessous du nuage ?
+    ichimokuSignal = 1 if price > senkouA.iloc[-1] and price > senkouB.iloc[-1] else -1 if price < senkouA.iloc[-1] and price < senkouB.iloc[-1] else 0
+    signals['Ichimoku']="▲" if ichimokuSignal==1 else "▼" if ichimokuSignal==-1 else "─"
+
+    # Comptage des confluences
     bullConfluences+=(hmaSlope==1); bullConfluences+=(haSignal==1); bullConfluences+=(smoothedHaSignal==1); bullConfluences+=(rsiSignal==1); bullConfluences+=adxHasMomentum; bullConfluences+=(ichimokuSignal==1)
     bearConfluences+=(hmaSlope==-1); bearConfluences+=(haSignal==-1); bearConfluences+=(smoothedHaSignal==-1); bearConfluences+=(rsiSignal==-1); bearConfluences+=adxHasMomentum; bearConfluences+=(ichimokuSignal==-1)
     
+    # Logique de direction
     if aligned_direction == "HAUSSIER":
         direction_display, confluence = "↗ HAUSSIER (Filtré D1/H4)", bullConfluences
     elif aligned_direction == "BAISSIER":
         direction_display, confluence = "↘ BAISSIER (Filtré D1/H4)", bearConfluences
-    else: # Pas de filtre, on prend la direction la plus forte en H1
+    else: 
         if bullConfluences > bearConfluences: direction_display, confluence = "▲ HAUSSIER (H1)", bullConfluences
         elif bearConfluences > bullConfluences: direction_display, confluence = "▼ BAISSIER (H1)", bearConfluences
         else: direction_display, confluence = "─ NEUTRE (H1)", bullConfluences
@@ -100,19 +136,14 @@ def calculate_signals(df, aligned_direction=None):
 # --- INTERFACE UTILISATEUR ---
 st.set_page_config(layout="wide", page_title="Scanner Canadian Star")
 st.title("Scanner Canadian Star 🌠")
-
-st.info("Cet outil scanne les paires de devises pour trouver des opportunités basées sur une confluence de signaux techniques.", icon="💡")
-
-# --- PARAMÈTRES PRINCIPAUX ---
+st.info("Cet outil scanne les paires pour trouver des opportunités basées sur une confluence de signaux techniques.", icon="💡")
 st.subheader("Configuration du Scan")
 col1, col2 = st.columns([1, 2])
 with col1:
     min_conf = st.slider("Confluence H1 minimale", 1, 6, 4, help="Seuil minimum de signaux concordants en H1.")
 with col2:
-    ### NOUVEAUTÉ ### : La case à cocher pour activer/désactiver le filtre
     use_trend_filter = st.checkbox("✅ Activer le filtre de tendance D1/H4 (Recommandé, très strict)", value=True)
 
-### NOUVEAUTÉ ### : Le bouton de scan principal
 if st.button("Lancer le Scan 🚀", use_container_width=True):
     results = []
     total_pairs = len(FOREX_PAIRS_TD)
@@ -121,19 +152,16 @@ if st.button("Lancer le Scan 🚀", use_container_width=True):
     for i, symbol in enumerate(FOREX_PAIRS_TD):
         current_progress = (i + 1) / total_pairs
         aligned_direction = None
-
         if use_trend_filter:
             progress_bar.progress(current_progress, text=f"({i+1}/{total_pairs}) Vérification D1/H4 pour {symbol}...")
             aligned_direction = check_directional_filters(symbol)
             if not aligned_direction:
                 st.toast(f"{symbol} : Tendance non alignée.", icon="❌")
-                continue # On passe à la paire suivante
+                continue 
             st.toast(f"{symbol} : Tendance {aligned_direction} alignée ! ✅", icon="📈")
-
         progress_bar.progress(current_progress, text=f"({i+1}/{total_pairs}) Calcul de la confluence H1 pour {symbol}...")
         df_h1 = get_data(symbol, interval="1h", output_size=200)
         time.sleep(2)
-        
         if df_h1 is not None:
             res = calculate_signals(df_h1, aligned_direction)
             if res and res['confluence'] >= min_conf:
@@ -149,7 +177,7 @@ if st.button("Lancer le Scan 🚀", use_container_width=True):
         df_display = df_res.drop(columns=['confluence_score'])[column_order]
         def style_direction(direction):
             if 'HAUSSIER' in direction: return 'color: #2ECC71; font-weight: bold;'
-            if 'BAISSIER' in direction: return 'color: #E74C3C; font-weight: bold;'
+            elif 'BAISSIER' in direction: return 'color: #E74C3C; font-weight: bold;'
             return ''
         st.dataframe(df_display.style.applymap(style_direction, subset=['Direction']), use_container_width=True)
         csv = df_res.to_csv(index=False).encode('utf-8')

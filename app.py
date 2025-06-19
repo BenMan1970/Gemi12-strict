@@ -44,7 +44,6 @@ FOREX_PAIRS_TD = ["EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF", "AUD/USD", "USD/CA
 # --- INDICATEURS & FILTRES ---
 def ema(s, p): return s.ewm(span=p, adjust=False).mean()
 
-### MODIFICATION ###: La fonction reçoit maintenant les dataframes
 def check_directional_filters(df_d1, df_h4):
     if df_d1 is None or df_h4 is None or len(df_d1) < 51 or len(df_h4) < 21: return None
     df_d1['ema20'], df_d1['ema50'] = ema(df_d1['Close'], 20), ema(df_d1['Close'], 50)
@@ -54,7 +53,6 @@ def check_directional_filters(df_d1, df_h4):
     if (last_d1['ema20'] < last_d1['ema50']) and (last_h4['ema9'] < last_h4['ema20']): return "BAISSIER"
     return None
 
-# Fonctions de calcul de confluence (restent les mêmes)
 def rma(s,p): return s.ewm(alpha=1/p,adjust=False).mean()
 def adx(h,l,c,di_len,adx_len): tr=pd.concat([h-l,abs(h-c.shift()),abs(l-c.shift())],axis=1).max(axis=1);atr=rma(tr,di_len);up=h.diff();down=-l.diff();plus_dm=np.where((up>down)&(up>0),up,0.);minus_dm=np.where((down>up)&(down>0),down,0.);plus_di=100*rma(pd.Series(plus_dm,index=h.index),di_len)/atr.replace(0,1e-9);minus_di=100*rma(pd.Series(minus_dm,index=h.index),di_len)/atr.replace(0,1e-9);dx=100*abs(plus_di-minus_di)/(plus_di+minus_di).replace(0,1e-9);return rma(dx,adx_len)
 def rsi(src,p): d=src.diff();g=d.where(d>0,0.);l=-d.where(d<0,0.);rs=rma(g,p)/rma(l,p).replace(0,1e-9);return 100-100/(1+rs)
@@ -94,7 +92,6 @@ st.subheader("🔬 Analyseur de Tendance Détaillé")
 symbol_to_analyze = st.text_input("Entrez une paire pour une analyse détaillée (ex: XAU/USD)", "")
 if symbol_to_analyze:
     with st.spinner(f"Analyse de {symbol_to_analyze}..."):
-        # L'analyseur fait ses propres appels, c'est indépendant du scan
         df_d1_an = get_data(symbol_to_analyze.upper(), "1day", 100)
         df_h4_an = get_data(symbol_to_analyze.upper(), "4h", 100)
         status_text = check_directional_filters(df_d1_an, df_h4_an)
@@ -115,31 +112,27 @@ if st.button("Lancer le Scan", use_container_width=True):
     total_pairs = len(FOREX_PAIRS_TD)
     progress_bar = st.progress(0, text="Initialisation du scan...")
 
-    ### MODIFICATION CRITIQUE DE LA BOUCLE DE SCAN ###
     for i, symbol in enumerate(FOREX_PAIRS_TD):
         current_progress = (i + 1) / total_pairs
         progress_bar.progress(current_progress, text=f"({i+1}/{total_pairs}) Récupération des données pour {symbol}...")
         
-        # 1. On récupère toutes les données nécessaires EN PREMIER
         df_d1 = get_data(symbol, "1day", 100); time.sleep(2)
         df_h4 = get_data(symbol, "4h", 100); time.sleep(2)
-        df_h1 = get_data(symbol, "1h", 200); time.sleep(2) # Pause finale avant la prochaine paire
+        df_h1 = get_data(symbol, "1h", 200); time.sleep(2)
 
-        # 2. On vérifie que tout est là, sinon on passe
+        # On vérifie que les données sont là, sinon on passe en silence
         if not all([isinstance(df, pd.DataFrame) for df in [df_d1, df_h4, df_h1]]):
-            st.toast(f"Données incomplètes pour {symbol}. Passage au suivant.", icon="⚠️")
+            ### MODIFICATION ###: La ligne toast a été supprimée ici.
             continue
 
         aligned_direction = None
-        # 3. Si le filtre est activé, on l'applique
         if use_trend_filter:
             progress_bar.progress(current_progress, text=f"({i+1}/{total_pairs}) Vérification D1/H4 pour {symbol}...")
             aligned_direction = check_directional_filters(df_d1, df_h4)
             if not aligned_direction:
-                continue # Le filtre a rejeté la paire, on passe à la suivante en silence
+                continue 
             st.toast(f"{symbol} : Tendance {aligned_direction} alignée ! ✅", icon="📈")
         
-        # 4. On calcule la confluence
         progress_bar.progress(current_progress, text=f"({i+1}/{total_pairs}) Calcul de la confluence H1 pour {symbol}...")
         res = calculate_signals(df_h1, aligned_direction)
         if res and res['confluence'] >= min_conf:
